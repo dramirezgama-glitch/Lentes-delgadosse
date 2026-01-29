@@ -1,0 +1,261 @@
+
+let lensType = 'CONVERGENTE'; 
+let f = 120;       // Magnitud del foco
+let objDist = 200; // Distancia (positiva desde el centro)
+let objH = -80;    // Altura (negativa es arriba)
+let dragging = false;
+
+// Referencias a elementos HTML
+let sliderF, sliderD, sliderH;
+let spanF, spanD, spanH;
+let outDi, outHi, outM, outType;
+
+function setup() {
+    let canvas = createCanvas(800, 500);
+    canvas.parent('canvas-container');
+    textSize(14);
+
+    // Conectar variables JS con elementos del DOM
+    sliderF = select('#sliderF');
+    sliderD = select('#sliderD');
+    sliderH = select('#sliderH');
+    
+    spanF = select('#val-f');
+    spanD = select('#val-d');
+    spanH = select('#val-h');
+
+    outDi = select('#out-di');
+    outHi = select('#out-hi');
+    outM  = select('#out-m');
+    outType = select('#out-type');
+}
+
+function draw() {
+    background(255);
+    translate(width / 2, height / 2); // (0,0) en el centro
+
+    // --- 1. SINCRONIZACIÓN DE DATOS ---
+    if (dragging) {
+        // Si arrastramos con mouse, actualizamos los sliders
+        sliderD.value(objDist);
+        sliderH.value(objH);
+        f = parseInt(sliderF.value()); // El foco sigue controlado por slider
+    } else {
+        // Si no arrastramos, los sliders mandan
+        f = parseInt(sliderF.value());
+        objDist = parseInt(sliderD.value());
+        objH = parseInt(sliderH.value());
+    }
+
+    // Actualizar etiquetas de texto de los sliders
+    spanF.html(f);
+    spanD.html(objDist);
+    spanH.html(objH);
+
+    // --- 2. CÁLCULOS ÓPTICOS ---
+    // Coordenada X real del objeto (negativa porque está a la izquierda)
+    let objX = -objDist; 
+    
+    // Signo del foco para la matemática
+    let signedF = (lensType === 'CONVERGENTE') ? f : -f;
+
+    // Fórmula: 1/di = 1/f - 1/do
+    // En coordenadas cartesianas donde do es negativo:
+    // imgX = (f * objX) / (objX + f)
+    let imgX = (signedF * objX) / (objX + signedF);
+    
+    // Magnificación M = imgX / objX
+    let m = imgX / objX;
+    let imgH = objH * m;
+
+    // Actualizar Panel de Datos
+    updateDataPanel(imgX, imgH, m);
+
+    // --- 3. DIBUJO ---
+    drawGrid();
+    drawAxis();
+    drawLensShape(signedF);
+    drawFocalPoints(signedF);
+    
+    // Objeto (Rojo)
+    drawObject(objX, objH, 'Objeto', [220, 50, 50]);
+
+    // Imagen (Azul)
+    // Es virtual si está del mismo lado que el objeto (izquierda, x < 0)
+    let isVirtual = (imgX < 0);
+    drawObject(imgX, imgH, isVirtual ? 'Imagen Virtual' : 'Imagen Real', [50, 100, 220], isVirtual);
+
+    // Rayos
+    drawRays(objX, objH, imgX, imgH, signedF);
+    
+    // Lógica del Mouse
+    handleInput(objX, objH);
+}
+
+// --- FUNCIONES DE AYUDA Y DIBUJO ---
+
+function updateDataPanel(imgX, imgH, m) {
+    outDi.html(imgX.toFixed(1));
+    outHi.html(imgH.toFixed(1));
+    outM.html(m.toFixed(2) + "x");
+    
+    if (imgX < 0) outType.html("VIRTUAL (Derecha)");
+    else outType.html("REAL (Invertida)");
+}
+
+function drawGrid() {
+    stroke(245);
+    strokeWeight(1);
+    for (let i = -width/2; i < width/2; i+=20) line(i, -height/2, i, height/2);
+    for (let i = -height/2; i < height/2; i+=20) line(-width/2, i, width/2, i);
+}
+
+function drawAxis() {
+    stroke(100);
+    line(-width/2, 0, width/2, 0); // Eje X
+    stroke(180);
+    line(0, -height/2, 0, height/2); // Eje Y (Lente)
+}
+
+function drawLensShape(sf) {
+    noFill();
+    stroke(0, 100, 255);
+    strokeWeight(3);
+    
+    // El grosor visual depende de la potencia focal (menor f = más curva)
+    let curveDepth = map(abs(sf), 50, 300, 40, 10); 
+
+    if (lensType === 'CONVERGENTE') {
+        // ()
+        beginShape();
+        vertex(0, -150);
+        bezierVertex(curveDepth, -50, curveDepth, 50, 0, 150);
+        bezierVertex(-curveDepth, 50, -curveDepth, -50, 0, -150);
+        endShape();
+    } else {
+        // )(
+        line(0, -150, 0, 150); // linea central
+        beginShape(); // Izq
+        vertex(-10, -150);
+        bezierVertex(curveDepth, -50, curveDepth, 50, -10, 150);
+        endShape();
+        beginShape(); // Der
+        vertex(10, -150);
+        bezierVertex(-curveDepth, -50, -curveDepth, 50, 10, 150);
+        endShape();
+        line(-10, -150, 10, -150); // tapas
+        line(-10, 150, 10, 150);
+    }
+}
+
+function drawFocalPoints(sf) {
+    fill(0);
+    noStroke();
+    circle(sf, 0, 8); // Foco imagen
+    text("F", sf - 5, 20);
+    circle(-sf, 0, 8); // Foco objeto
+    text("F'", -sf - 5, 20);
+}
+
+function drawObject(x, h, labelText, col, isGhost = false) {
+    stroke(col);
+    strokeWeight(3);
+    fill(col);
+    if (isGhost) {
+        drawingContext.setLineDash([5, 5]);
+        fill(col[0], col[1], col[2], 80);
+    } else {
+        drawingContext.setLineDash([]);
+    }
+
+    line(x, 0, x, h);
+    
+    // Flecha
+    let dir = (h < 0) ? -1 : 1;
+    triangle(x - 5, h, x + 5, h, x, h + (dir * -10));
+    
+    noStroke();
+    drawingContext.setLineDash([]);
+    textAlign(CENTER);
+    text(labelText, x, h + (dir * -15));
+}
+
+function drawRays(ox, oy, ix, iy, sf) {
+    strokeWeight(1.5);
+    
+    let c1 = color(255, 140, 0); // Paralelo
+    let c2 = color(0, 180, 80);  // Central
+    let c3 = color(140, 0, 200); // Focal
+    
+    // Función de trazado inteligente
+    function trace(x1, y1, lensY, x2, y2, col) {
+        stroke(col);
+        drawingContext.setLineDash([]);
+        
+        // 1. Incidente
+        line(x1, y1, 0, lensY);
+        
+        // 2. Pendiente de salida
+        // m = (y2 - y_lente) / (x2 - 0)
+        let slope = (y2 - lensY) / x2;
+        
+        // 3. Dibujar hacia el infinito (derecha)
+        let farX = width;
+        let farY = lensY + slope * farX;
+        line(0, lensY, farX, farY);
+        
+        // 4. Proyección hacia atrás (si la imagen es virtual o para guía visual)
+        stroke(col.levels[0], col.levels[1], col.levels[2], 50); // Transparente
+        drawingContext.setLineDash([5, 5]);
+        let backX = -width;
+        let backY = lensY + slope * backX;
+        line(0, lensY, backX, backY);
+    }
+
+    // Rayo 1: Paralelo -> Foco
+    trace(ox, oy, oy, ix, iy, c1);
+    
+    // Rayo 2: Centro -> Centro (sin desvío)
+    trace(ox, oy, 0, ix, iy, c2);
+    
+    // Rayo 3: Foco -> Paralelo
+    // Este es truculento. Entra como si viniera del foco, sale recto (altura de imagen)
+    trace(ox, oy, iy, ix, iy, c3);
+    
+    drawingContext.setLineDash([]);
+}
+
+function handleInput(ox, oh) {
+    let mx = mouseX - width/2;
+    let my = mouseY - height/2;
+    
+    // Detectar si estamos cerca de la punta del objeto
+    if (dist(mx, my, ox, oh) < 30) {
+        cursor(MOVE);
+        if (mouseIsPressed) dragging = true;
+    } else {
+        cursor(ARROW);
+    }
+    
+    if (!mouseIsPressed) dragging = false;
+    
+    if (dragging) {
+        // Actualizamos las variables globales de posición
+        // Limitamos para que no cruce la lente (x < -10)
+        objDist = constrain(-mx, 10, 380);
+        // Limitamos la altura
+        objH = constrain(my, -200, 200);
+    }
+}
+
+// Botón de cambio de lente
+function toggleLens() {
+    let btn = document.getElementById('lensBtn');
+    if (lensType === 'CONVERGENTE') {
+        lensType = 'DIVERGENTE';
+        btn.innerText = "Modo: Lente Divergente";
+    } else {
+        lensType = 'CONVERGENTE';
+        btn.innerText = "Modo: Lente Convergente";
+    }
+}
